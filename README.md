@@ -46,4 +46,4 @@ Results will be saved to `webscavanger_results.json` and displayed in the consol
 
 ## License
 
-Copyright (c) 2024 WebScavanger 
+Copyright (c) 2024 Branch->On
