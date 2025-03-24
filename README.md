@@ -1,5 +1,6 @@
 # Web Scavenger
-https://github.com/mohcine-otmane/Web-Scavenger/blob/main/WebScavenger.ico
+![Uploading WebScavenger.png…]()
+
 A powerful web scraping tool that searches across multiple search engines to find and categorize various types of files and documents.
 
 ## Features
