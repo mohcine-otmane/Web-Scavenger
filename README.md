@@ -10,6 +10,7 @@ A powerful web scraping tool that searches across multiple search engines to fin
 - Undetected Chrome browser automation
 - Detailed logging and error handling
 - JSON output format for results
+- Graphical User Interface (GUI) version available
 
 ## Requirements
 
@@ -32,16 +33,23 @@ pip install -r requirements.txt
 
 ## Usage
 
+### Command Line Version
 Run the script:
 ```bash
 python WebScavanger.py
+```
+
+### Graphical User Interface Version
+Run the GUI version:
+```bash
+python webscavanger_gui.py
 ```
 
 The program will prompt you for:
 1. Your search query
 2. Number of pages to search (default: 3)
 
-Results will be saved to `webscavanger_results.json` and displayed in the console.
+Results will be saved to `webscavanger_results.json` and displayed in the console/GUI.
 
 ## License
 
