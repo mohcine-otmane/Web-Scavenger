@@ -1,5 +1,5 @@
 # Web Scavenger
-![Uploading WebScavenger.png…]()
+![WebScavenger](https://github.com/user-attachments/assets/eb992ee1-7848-49b7-aa17-c7c953a0778d)
 
 A powerful web scraping tool that searches across multiple search engines to find and categorize various types of files and documents.
 
