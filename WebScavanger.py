@@ -1,340 +1,219 @@
-import requests
+import os
 import json
 import time
-from typing import Dict, List
+import random
 import logging
 from datetime import datetime
-import re
-import random
-from urllib.parse import urlparse, quote, unquote
-import concurrent.futures
-from fake_useragent import UserAgent
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
-import undetected_chromedriver as uc
-import os
-from bs4 import BeautifulSoup
-import sys
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from fake_useragent import UserAgent
+from urllib.parse import urlparse, parse_qs
+import re
 
 logging.basicConfig(
+    filename='webscavanger.log',
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('webscavanger.log'),
-        logging.StreamHandler()
-    ]
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
 class WebScavanger:
     def __init__(self):
-        self.visited_urls = set()
-        self.drive_links = {
-            'documents': [],
-            'images': [],
-            'videos': [],
-            'audio': [],
-            'archives': [],
-            'spreadsheets': [],
-            'presentations': [],
-            'pdfs': [],
+        self.results = {
+            'pdf': [],
+            'docx': [],
+            'xlsx': [],
+            'ppt': [],
+            'zip': [],
+            'rar': [],
+            'exe': [],
+            'iso': [],
+            'dmg': [],
+            'apk': [],
             'other': []
         }
+        self.ua = UserAgent()
+        self.setup_browser()
+
+    def setup_browser(self):
+        """Setup Chrome browser with optimized settings"""
+        chrome_options = webdriver.ChromeOptions()
+        chrome_options.add_argument('--headless=new')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument('--disable-logging')
+        chrome_options.add_argument('--log-level=3')
+        chrome_options.add_argument('--silent')
+        chrome_options.add_argument('--disable-javascript')
+        chrome_options.add_argument('--disable-images')
+        chrome_options.add_argument('--disable-cookies')
+        chrome_options.add_argument('--disable-plugins')
+        chrome_options.add_argument('--disable-popups')
+        chrome_options.add_argument('--disable-geolocation')
+        chrome_options.add_argument('--disable-media-stream')
+        chrome_options.add_argument(f'user-agent={self.ua.random}')
         
-        self.search_engines = {
-            'google': {
-                'url': 'https://www.google.com/search',
-                'params': {'start': ''},
-                'pagination': lambda x: x * 10,
-                'max_retries': 3
-            },
-            'bing': {
-                'url': 'https://www.bing.com/search',
-                'params': {'first': ''},
-                'pagination': lambda x: x * 10 + 1,
-                'max_retries': 3
-            }
-        }
-        
-        self.initialize_driver()
-        
-    def initialize_driver(self):
+        self.driver = webdriver.Chrome(options=chrome_options)
+        self.driver.set_page_load_timeout(10)
+        self.wait = WebDriverWait(self.driver, 5)
+
+    def search_google(self, query, num_pages=3):
+        """Search Google with optimized performance"""
         try:
-            options = uc.ChromeOptions()
-            options.add_argument('--start-maximized')
-            options.add_argument('--disable-popup-blocking')
-            options.add_argument('--disable-notifications')
-            options.add_argument('--disable-gpu')
-            options.add_argument('--no-sandbox')
-            options.add_argument('--disable-dev-shm-usage')
-            options.add_argument(f'user-agent={UserAgent().random}')
-            
-            self.driver = uc.Chrome(options=options)
-            self.driver.set_page_load_timeout(30)
-            logging.info("Chrome driver initialized successfully")
-        except Exception as e:
-            logging.error(f"Failed to initialize Chrome driver: {str(e)}")
-            raise
-
-    def categorize_link(self, url: str) -> str:
-        url = url.lower()
-        if 'pdf' in url:
-            return 'pdfs'
-        elif any(ext in url for ext in ['.doc', '.docx', '.txt', '.rtf']):
-            return 'documents'
-        elif any(ext in url for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp']):
-            return 'images'
-        elif any(ext in url for ext in ['.mp4', '.avi', '.mov', '.wmv']):
-            return 'videos'
-        elif any(ext in url for ext in ['.mp3', '.wav', '.ogg', '.m4a']):
-            return 'audio'
-        elif any(ext in url for ext in ['.zip', '.rar', '.7z', '.tar', '.gz']):
-            return 'archives'
-        elif any(ext in url for ext in ['.xls', '.xlsx', '.csv']):
-            return 'spreadsheets'
-        elif any(ext in url for ext in ['.ppt', '.pptx']):
-            return 'presentations'
-        else:
-            return 'other'
-
-    def is_valid_link(self, url: str) -> bool:
-        try:
-            url = unquote(url)
-            url = url.split('&')[0]
-            url = url.split('#')[0]
-            
-            if any(x in url.lower() for x in ['login', 'signup', 'register', 'account', 'profile']):
-                return False
-                
-            file_extensions = [
-                '.pdf', '.doc', '.docx', '.txt', '.rtf',
-                '.jpg', '.jpeg', '.png', '.gif', '.bmp',
-                '.mp4', '.avi', '.mov', '.wmv',
-                '.mp3', '.wav', '.ogg', '.m4a',
-                '.zip', '.rar', '.7z', '.tar', '.gz',
-                '.xls', '.xlsx', '.csv',
-                '.ppt', '.pptx'
-            ]
-            
-            has_valid_extension = any(ext in url.lower() for ext in file_extensions)
-            
-            file_hosting_domains = [
-                'drive.google.com', 'dropbox.com', 'mediafire.com',
-                'mega.nz', 'rapidshare.com', '4shared.com',
-                'scribd.com', 'slideshare.net', 'academia.edu',
-                'researchgate.net', 'archive.org', 'github.com',
-                'sourceforge.net', 'bitbucket.org'
-            ]
-            
-            is_file_hosting = any(domain in url.lower() for domain in file_hosting_domains)
-            
-            return has_valid_extension or is_file_hosting
-            
-        except Exception as e:
-            logging.error(f"Error validating URL {url}: {str(e)}")
-            return False
-
-    def handle_captcha(self) -> bool:
-        try:
-            captcha_indicators = [
-                "g-recaptcha",
-                "recaptcha",
-                "captcha",
-                "I'm not a robot",
-                "verify you're a human"
-            ]
-            
-            page_source = self.driver.page_source.lower()
-            if any(indicator.lower() in page_source for indicator in captcha_indicators):
-                logging.warning("CAPTCHA detected! Waiting for manual intervention...")
-                WebDriverWait(self.driver, 300).until(
-                    lambda driver: not any(indicator.lower() in driver.page_source.lower() 
-                                         for indicator in captcha_indicators)
-                )
-                logging.info("CAPTCHA solved successfully!")
-                return True
-            return True
-        except TimeoutException:
-            logging.error("CAPTCHA solving timeout!")
-            return False
-        except Exception as e:
-            logging.error(f"Error handling CAPTCHA: {str(e)}")
-            return False
-
-    def search_with_selenium(self, engine_name: str, query: str, page: int) -> List[dict]:
-        engine = self.search_engines[engine_name]
-        retries = 0
-        
-        while retries < engine['max_retries']:
-            try:
-                url = f"{engine['url']}?q={quote(query)}&{list(engine['params'].keys())[0]}={engine['pagination'](page)}"
-                logging.info(f"Accessing URL: {url}")
-                self.driver.get(url)
-                
-                try:
-                    WebDriverWait(self.driver, 20).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-hveid]" if engine_name == 'google' else "li.b_algo"))
-                    )
-                except TimeoutException:
-                    logging.warning("Timeout waiting for search results, trying to proceed anyway")
-                
-                if not self.handle_captcha():
-                    retries += 1
-                    time.sleep(random.uniform(5, 10))
-                    continue
-                
-                last_height = self.driver.execute_script("return document.body.scrollHeight")
-                while True:
-                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                    time.sleep(3)
-                    new_height = self.driver.execute_script("return document.body.scrollHeight")
-                    if new_height == last_height:
-                        break
-                    last_height = new_height
-                
-                selector = "div[data-hveid]" if engine_name == 'google' else "li.b_algo"
-                search_results = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                logging.info(f"Found {len(search_results)} search results on page {page + 1}")
-                
-                found_links = []
-                for result in search_results:
-                    try:
-                        links = result.find_elements(By.TAG_NAME, "a")
-                        for link in links:
-                            href = link.get_attribute('href')
-                            if href and self.is_valid_link(href):
-                                logging.info(f"Found valid link: {href}")
-                                if href not in self.visited_urls:
-                                    self.visited_urls.add(href)
-                                    try:
-                                        main_window = self.driver.current_window_handle
-                                        
-                                        self.driver.execute_script(f'window.open("{href}", "_blank");')
-                                        time.sleep(3)
-                                        
-                                        new_window = self.driver.window_handles[-1]
-                                        self.driver.switch_to.window(new_window)
-                                        
-                                        try:
-                                            WebDriverWait(self.driver, 10).until(
-                                                EC.presence_of_element_located((By.TAG_NAME, "body"))
-                                            )
-                                            
-                                            page_source = self.driver.page_source
-                                            soup = BeautifulSoup(page_source, 'html.parser')
-                                            
-                                            title = soup.title.string if soup.title else "Untitled"
-                                            description = ""
-                                            meta_desc = soup.find('meta', {'name': 'description'})
-                                            if meta_desc:
-                                                description = meta_desc.get('content', '')
-                                            
-                                            category = self.categorize_link(href)
-                                            found_links.append({
-                                                'url': href,
-                                                'title': title,
-                                                'description': description,
-                                                'category': category,
-                                                'source': engine_name,
-                                                'timestamp': datetime.now().isoformat()
-                                            })
-                                            
-                                        except Exception as e:
-                                            logging.error(f"Error processing page {href}: {str(e)}")
-                                        
-                                        finally:
-                                            self.driver.close()
-                                            self.driver.switch_to.window(main_window)
-                                            
-                                    except Exception as e:
-                                        logging.error(f"Error opening link {href}: {str(e)}")
-                                        continue
-                                        
-                    except Exception as e:
-                        logging.error(f"Error processing search result: {str(e)}")
-                        continue
-                
-                return found_links
-                
-            except Exception as e:
-                logging.error(f"Error during search on {engine_name}: {str(e)}")
-                retries += 1
-                time.sleep(random.uniform(5, 10))
-                continue
-        
-        return []
-
-    def search_drive_links(self, query: str, num_pages: int = 3) -> Dict[str, List[dict]]:
-        for engine_name in self.search_engines:
             for page in range(num_pages):
-                try:
-                    found_links = self.search_with_selenium(engine_name, query, page)
-                    for link in found_links:
-                        category = link['category']
-                        if category in self.drive_links:
-                            self.drive_links[category].append(link)
-                except Exception as e:
-                    logging.error(f"Error searching on {engine_name} page {page + 1}: {str(e)}")
-                    continue
+                start = page * 10
+                url = f'https://www.google.com/search?q={query}&start={start}'
+                logging.info(f"Searching Google: {url}")
                 
-                time.sleep(random.uniform(3, 7))
-        
-        return self.drive_links
+                self.driver.get(url)
+                time.sleep(random.uniform(1, 2))
+                
+                results = self.driver.find_elements(By.CSS_SELECTOR, 'div[data-hveid]')
+                if not results:
+                    logging.warning("No results found on Google")
+                    break
+                    
+                for result in results:
+                    try:
+                        link = result.find_element(By.CSS_SELECTOR, 'a').get_attribute('href')
+                        if link and not link.startswith('https://www.google.com'):
+                            self.process_link(link)
+                    except NoSuchElementException:
+                        continue
+                        
+        except Exception as e:
+            logging.error(f"Error in Google search: {str(e)}")
 
-    def save_to_json(self, filename: str = 'webscavanger_results.json'):
+    def search_bing(self, query, num_pages=3):
+        """Search Bing with optimized performance"""
+        try:
+            for page in range(num_pages):
+                start = page * 10
+                url = f'https://www.bing.com/search?q={query}&first={start}'
+                logging.info(f"Searching Bing: {url}")
+                
+                self.driver.get(url)
+                time.sleep(random.uniform(1, 2))
+                
+                results = self.driver.find_elements(By.CSS_SELECTOR, 'li.b_algo')
+                if not results:
+                    logging.warning("No results found on Bing")
+                    break
+                    
+                for result in results:
+                    try:
+                        link = result.find_element(By.CSS_SELECTOR, 'h2 a').get_attribute('href')
+                        if link:
+                            self.process_link(link)
+                    except NoSuchElementException:
+                        continue
+                        
+        except Exception as e:
+            logging.error(f"Error in Bing search: {str(e)}")
+
+    def process_link(self, url):
+        """Process link with optimized validation"""
+        try:
+            if not url or not isinstance(url, str):
+                return
+
+            if not re.match(r'^https?://', url):
+                return
+                
+            parsed = urlparse(url)
+            if not parsed.netloc:
+                return
+                
+            path = parsed.path.lower()
+            if path.endswith('.pdf'):
+                self.results['pdf'].append(url)
+            elif path.endswith('.docx'):
+                self.results['docx'].append(url)
+            elif path.endswith('.xlsx'):
+                self.results['xlsx'].append(url)
+            elif path.endswith(('.ppt', '.pptx')):
+                self.results['ppt'].append(url)
+            elif path.endswith('.zip'):
+                self.results['zip'].append(url)
+            elif path.endswith('.rar'):
+                self.results['rar'].append(url)
+            elif path.endswith('.exe'):
+                self.results['exe'].append(url)
+            elif path.endswith('.iso'):
+                self.results['iso'].append(url)
+            elif path.endswith('.dmg'):
+                self.results['dmg'].append(url)
+            elif path.endswith('.apk'):
+                self.results['apk'].append(url)
+            else:
+                self.results['other'].append(url)
+                
+        except Exception as e:
+            logging.error(f"Error processing link {url}: {str(e)}")
+
+    def save_results(self):
+        """Save results with timestamp"""
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f'webscavanger_results_{timestamp}.json'
+        
         try:
             with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(self.drive_links, f, indent=4, ensure_ascii=False)
+                json.dump(self.results, f, indent=2, ensure_ascii=False)
             logging.info(f"Results saved to {filename}")
+            print(f"\nResults saved to {filename}")
         except Exception as e:
-            logging.error(f"Error saving results to {filename}: {str(e)}")
+            logging.error(f"Error saving results: {str(e)}")
+            print("\nError saving results")
 
-    def __del__(self):
+    def close(self):
+        """Close browser"""
         try:
-            if hasattr(self, 'driver'):
-                self.driver.quit()
+            self.driver.quit()
         except Exception as e:
-            logging.error(f"Error closing driver: {str(e)}")
+            logging.error(f"Error closing browser: {str(e)}")
 
 def main():
+    print("\nWeb Scavanger by Mohcine Otmane")
+    print("Starting WebScavanger...")
+    
     try:
-        print("Web Scavanger by Mohcine Otmane")
-        print("Starting WebScavanger...")
+        query = input("\nEnter your search query: ").strip()
+        if not query:
+            print("Search query cannot be empty")
+            return
+            
+        num_pages = input("Enter number of pages to search (default: 3): ").strip()
+        num_pages = int(num_pages) if num_pages.isdigit() else 3
+        
+        print("\nStarting search...")
+        print("This may take a few minutes...")
+        
         scraper = WebScavanger()
         
-        query = input("Enter your search query: ")
-        num_pages = int(input("Enter number of pages to search (default: 3): ") or "3")
+        scraper.search_google(query, num_pages)
+        scraper.search_bing(query, num_pages)
         
-        print(f"\nSearching for: {query}")
-        print(f"Number of pages: {num_pages}")
-        print("Please Wait...\n")
-        
-        results = scraper.search_drive_links(query, num_pages)
+        scraper.save_results()
         
         print("\nSearch completed!")
-        print("\nResults by category:")
-        for category, links in results.items():
-            print(f"\n{category.upper()}: {len(links)} links found")
-            for link in links[:5]:
-                print(f"- {link['title']}")
-                print(f"  URL: {link['url']}")
-                if link['description']:
-                    print(f"  Description: {link['description'][:100]}...")
-                print()
-        
-        scraper.save_to_json()
-        print(f"\nDetailed results saved to webscavanger_results.json")
-        
+        print("\nResults summary:")
+        for category, links in scraper.results.items():
+            print(f"{category.upper()}: {len(links)} links found")
+            
+    except KeyboardInterrupt:
+        print("\nSearch interrupted by user")
+        logging.info("Search interrupted by user")
     except Exception as e:
-        logging.error(f"Critical error in main: {str(e)}")
         print(f"\nAn error occurred: {str(e)}")
+        logging.error(f"Error in main: {str(e)}")
     finally:
-        print("\nPress Enter to exit...")
-        input()
+        if 'scraper' in locals():
+            scraper.close()
 
 if __name__ == "__main__":
     main() 
